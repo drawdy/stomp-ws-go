@@ -19,6 +19,7 @@ package stompngo
 import (
 	"bufio"
 	"bytes"
+	"io"
 
 	// "fmt"
 	"github.com/gmallard/stompngo/senv"
@@ -47,6 +48,61 @@ func (c *Connection) connectHandler(h Headers) (e error) {
 	if e != nil {
 		return e
 	}
+	//fmt.Printf("CHDB02\n")
+	f, e := connectResponse(string(b))
+	if e != nil {
+		return e
+	}
+	//fmt.Printf("CHDB03\n")
+	//
+	c.ConnectResponse = &Message{f.Command, f.Headers, f.Body}
+	if c.ConnectResponse.Command == ERROR {
+		return &CONNERROR{ECONERR, string(f.Body)}
+	}
+	//fmt.Printf("CHDB04\n")
+	//
+	e = c.setProtocolLevel(h, c.ConnectResponse.Headers)
+	if e != nil {
+		return e
+	}
+	//fmt.Printf("CHDB05\n")
+	//
+	if s, ok := c.ConnectResponse.Headers.Contains(HK_SESSION); ok {
+		c.sessLock.Lock()
+		c.session = s
+		c.sessLock.Unlock()
+	}
+
+	if c.Protocol() >= SPL_11 {
+		e = c.initializeHeartBeats(h)
+		if e != nil {
+			return e
+		}
+	}
+	//fmt.Printf("CHDB06\n")
+
+	c.setConnected(true)
+	c.mets.tfr += 1
+	c.mets.tbr += c.ConnectResponse.Size(false)
+	return nil
+}
+
+func (c *Connection) connectHandlerOverWS(h Headers) (e error) {
+	//fmt.Printf("CHDB01\n")
+	var b []byte
+	// affected by heartbeat may receive empty frame
+	for strings.TrimSpace(string(b)) == "" {
+		_, r, e := c.wsConn.NextReader()
+		if e != nil {
+			return e
+		}
+		c.rdr = bufio.NewReader(r)
+		b, e = c.rdr.ReadBytes(0)
+		if e != nil && e != io.EOF {
+			return e
+		}
+	}
+
 	//fmt.Printf("CHDB02\n")
 	f, e := connectResponse(string(b))
 	if e != nil {
