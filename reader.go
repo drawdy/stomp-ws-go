@@ -17,6 +17,7 @@
 package stompngo
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net"
@@ -35,6 +36,111 @@ func (c *Connection) reader() {
 readLoop:
 	for {
 		f, e := c.readFrame()
+		logLock.Lock()
+		if c.logger != nil {
+			c.logx("RDR_RECEIVE_FRAME", f.Command, f.Headers, HexData(f.Body),
+				"RDR_RECEIVE_ERR", e)
+		}
+		logLock.Unlock()
+		if e != nil {
+			//debug.PrintStack()
+			f.Headers = append(f.Headers, "connection_read_error", e.Error())
+			md := MessageData{Message(f), e}
+			c.handleReadError(md)
+			if e == io.EOF && !c.isConnected() {
+				c.log("RDR_SHUTDOWN_EOF", e)
+			} else {
+				c.log("RDR_CONN_GENL_ERR", e)
+			}
+			break readLoop
+		}
+
+		if f.Command == "" {
+			continue readLoop
+		}
+
+		m := Message(f)
+		c.mets.tfr += 1 // Total frames read
+		// Headers already decoded
+		c.mets.tbr += m.Size(false) // Total bytes read
+
+		//*************************************************************************
+		// Replacement START
+		md := MessageData{m, e}
+		switch f.Command {
+		//
+		case MESSAGE:
+			sid, ok := f.Headers.Contains(HK_SUBSCRIPTION)
+			if !ok { // This should *NEVER* happen
+				panic(fmt.Sprintf("stompngo INTERNAL ERROR: command:<%s> headers:<%v>",
+					f.Command, f.Headers))
+			}
+			c.subsLock.RLock()
+			ps, sok := c.subs[sid] // This is a map of pointers .....
+			//
+			if !sok {
+				// The sub can be gone under some timing conditions.  In that case
+				// we log it of possible, and continue (hope for the best).
+				c.log("RDR_NOSUB", sid, m.Command, m.Headers)
+				goto csRUnlock
+			}
+			if ps.cs {
+				// The sub can also already be closed under some conditions.
+				// Again, we log that if possible, and continue
+				c.log("RDR_CLSUB", sid, m.Command, m.Headers)
+				goto csRUnlock
+			}
+			// Handle subscription draining
+			switch ps.drav {
+			case false:
+				ps.md <- md
+			default:
+				ps.drmc++
+				if ps.drmc > ps.dra {
+					logLock.Lock()
+					if c.logger != nil {
+						c.logx("RDR_DROPM", ps.drmc, sid, m.Command,
+							m.Headers, HexData(m.Body))
+					}
+					logLock.Unlock()
+				} else {
+					ps.md <- md
+				}
+			}
+		csRUnlock:
+			c.subsLock.RUnlock()
+		//
+		case ERROR:
+			fallthrough
+		//
+		case RECEIPT:
+			c.input <- md
+		//
+		default:
+			panic(fmt.Sprintf("Broker SEVERE ERROR, not STOMP? command:<%s> headers:<%v>",
+				f.Command, f.Headers))
+		}
+		// Replacement END
+		//*************************************************************************
+
+		select {
+		case _ = <-c.ssdc:
+			c.log("RDR_SHUTDOWN detected")
+			break readLoop
+		default:
+		}
+		c.log("RDR_RELOOP")
+	}
+	close(c.input)
+	c.setConnected(false)
+	c.sysAbort()
+	c.log("RDR_SHUTDOWN", time.Now())
+}
+
+func (c *Connection) readerOverWS() {
+readLoop:
+	for {
+		f, e := c.readFrameOverWS()
 		logLock.Lock()
 		if c.logger != nil {
 			c.logx("RDR_RECEIVE_FRAME", f.Command, f.Headers, HexData(f.Body),
@@ -226,6 +332,93 @@ func (c *Connection) readFrame() (f Frame, e error) {
 	return f, e
 }
 
+func (c *Connection) readFrameOverWS() (f Frame, e error) {
+	f = Frame{"", Headers{}, NULLBUFF}
+
+	// Read f.Command or line ends (maybe heartbeats)
+	c.setReadDeadlineOverWS()
+	_, r, e := c.wsConn.NextReader()
+	if e != nil {
+		return f, e
+	}
+	c.rdr = bufio.NewReader(r)
+	s, e := c.rdr.ReadString('\n')
+	if c.checkReadError(e) != nil {
+		return f, e
+	}
+	if s == "" {
+		return f, e
+	}
+	if c.hbd != nil {
+		c.updateHBReads()
+	}
+	f.Command = s[0 : len(s)-1]
+	if s == "\n" {
+		return f, e
+	}
+
+	// Validate the command
+	if _, ok := validCmds[f.Command]; !ok {
+		ev := fmt.Errorf("%s\n%s", EINVBCMD, HexData([]byte(f.Command)))
+		return f, ev
+	}
+	// Read f.Headers
+	for {
+		//c.setReadDeadlineOverWS()
+		s, e := c.rdr.ReadString('\n')
+		if c.checkReadError(e) != nil {
+			return f, e
+		}
+		if c.hbd != nil {
+			c.updateHBReads()
+		}
+		if s == "\n" {
+			break
+		}
+		s = s[0 : len(s)-1]
+		p := strings.SplitN(s, ":", 2)
+		if len(p) != 2 {
+			return f, EUNKHDR
+		}
+		// Always decode regardless of protocol level. See issue #47.
+		p[0] = decode(p[0])
+		p[1] = decode(p[1])
+		f.Headers = append(f.Headers, p[0], p[1])
+	}
+	//
+	e = checkHeaders(f.Headers, c.Protocol())
+	if e != nil {
+		return f, e
+	}
+	// Read f.Body
+	if v, ok := f.Headers.Contains(HK_CONTENT_LENGTH); ok {
+		l, e := strconv.Atoi(strings.TrimSpace(v))
+		if e != nil {
+			return f, e
+		}
+		if l == 0 {
+			f.Body, e = readUntilNulOverWS(c)
+		} else {
+			f.Body, e = readBodyOverWS(c, l)
+		}
+	} else {
+		// content-length not present
+		f.Body, e = readUntilNulOverWS(c)
+	}
+	if c.checkReadError(e) != nil {
+		return f, e
+	}
+	if c.hbd != nil {
+		c.updateHBReads()
+	}
+	// End of read loop - set no deadline
+	if c.dld.rde {
+		_ = c.wsConn.SetReadDeadline(c.dld.t0)
+	}
+
+	return f, e
+}
+
 func (c *Connection) updateHBReads() {
 	c.hbd.rdl.Lock()
 	c.hbd.lr = time.Now().UnixNano() // Latest good read
@@ -235,6 +428,12 @@ func (c *Connection) updateHBReads() {
 func (c *Connection) setReadDeadline() {
 	if c.dld.rde && c.dld.rds {
 		_ = c.netconn.SetReadDeadline(time.Now().Add(c.dld.rdld))
+	}
+}
+
+func (c *Connection) setReadDeadlineOverWS() {
+	if c.dld.rde && c.dld.rds {
+		_ = c.wsConn.SetReadDeadline(time.Now().Add(c.dld.rdld))
 	}
 }
 

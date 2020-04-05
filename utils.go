@@ -65,6 +65,20 @@ func readUntilNul(c *Connection) ([]uint8, error) {
 	return b, e
 }
 
+func readUntilNulOverWS(c *Connection) ([]uint8, error) {
+	c.setReadDeadlineOverWS()
+	b, e := c.rdr.ReadBytes(0)
+	if c.checkReadError(e) != nil {
+		return b, e
+	}
+	if len(b) == 1 {
+		b = NULLBUFF
+	} else {
+		b = b[0 : len(b)-1]
+	}
+	return b, e
+}
+
 /*
 	A network helper.  Read a full message body with a known length that is
 	> 0.  Then read the trailing 'null' byte expected for STOMP frames.
@@ -85,6 +99,21 @@ func readBody(c *Connection, l int) ([]uint8, error) {
 	if c.checkReadError(e) != nil { // Other erors
 		return b, e
 	}
+	return b, e
+}
+
+func readBodyOverWS(c *Connection, l int) ([]uint8, error) {
+	b := make([]byte, l)
+	c.setReadDeadlineOverWS()
+	n, e := io.ReadFull(c.rdr, b)
+	if n < l && n != 0 { // Short read, e is ErrUnexpectedEOF
+		c.log("SHORT READ", n, l, e)
+		return b[0 : n-1], e
+	}
+	if c.checkReadError(e) != nil { // Other erors
+		return b, e
+	}
+	_, _ = c.rdr.ReadByte() // trailing NUL
 	return b, e
 }
 
