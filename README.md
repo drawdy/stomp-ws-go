@@ -1,260 +1,78 @@
-# stompngo - A STOMP 1.0, 1.1 and 1.2 Client Package #
+# stomp-ws-go - STOMP 协议 golang 客户端，支持 WebSocket 连接 #
 
-## Features ##
+## 说明 ##
+本项目在 [stompngo](https://github.com/gmallard/stompngo) 项目的基础上改造而来，增加了对基于 WebSocket 实现的 STOMP 协议支持。
 
-* Full support of STOMP protocols:
+## 特性 ##
 
-    1. [Protocol Level 1.0](http://stomp.github.com/stomp-specification-1.0.html)
-    2. [Protocol Level 1.1](http://stomp.github.com/stomp-specification-1.1.html)
-    3. [Protocol Level 1.2](http://stomp.github.com/stomp-specification-1.2.html)
+- 支持 STOMP 1.0，1.1 和 1.2，相关规范请参考 [STOMP] (http://stomp.github.io/) 官方说明。
+- 已针对 ActiveMQ、Apache Apollo、RabbitMQ 最近发布的版本测试通过（基于 TCP 连接），参见 [stompngo](https://github.com/gmallard/stompngo)
+- 已针对 Spring STOMP 框架测试通过（基于 WebSocket 连接）
 
-## References ##
+## 安装 ##
 
-* [STOMP 1.0 Protocol](http://stomp.github.com/stomp-specification-1.0.html)
-* [STOMP 1.1 Protocol](http://stomp.github.com/stomp-specification-1.1.html)
-* [STOMP 1.2 Protocol](http://stomp.github.com/stomp-specification-1.2.html)
+```console
+go get github.com/gmallard/stompngo
+```
 
-## Installation ##
+## 示例 ##
 
-Installation requires a working go environment. For current versions of go
-issue:
+- 基于 TCP 连接的示例参见 [stompngo_examples at github](https://github.com/gmallard/stompngo_examples)
+- 基于 Websocket 连接的简单示例如下，完整内容参见 [example-stomp-ws-go](https://github.com/drawdy/example-stomp-ws-go/)
 
-* go get github.com/gmallard/stompngo
+```golang
+func main() {
 
-The GOPATH environment variable must be set properly.
+	u := url.URL{
+		Scheme: "ws",
+		Host:   "localhost:8080",
+		Path:   "/stomp-ws",
+	}
+	conn, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Fatalf("couldn't connect to %v: %v", u.String(), err)
+	}
+	log.Printf("response status: %v\n", resp.Status)
+	log.Print("Websocket connection succeeded.")
 
-It is also possible to just clone the stompngo repository to any location of
-choice, and use go modules to locate it.
+	h := stomp.Headers{
+		stomp.HK_ACCEPT_VERSION, "1.2,1.1,1.0",
+		stomp.HK_HEART_BEAT, "3000,3000",
+		stomp.HK_HOST, u.Host,
+	}
+	sc, err := stomp.ConnectOverWS(conn, h)
+	if err != nil {
+		log.Fatalf("couldn't create stomp connection: %v", err)
+	}
 
-## Examples ##
+	mdCh, err := sc.Subscribe(stomp.Headers{
+		stomp.HK_DESTINATION, "/topic/greeting.back",
+		stomp.HK_ID, stomp.Uuid(),
+	})
+	if err != nil {
+		log.Fatalf("failed to suscribe greeting message: %v", err)
+	}
 
-The examples in the included unit tests can be used as a good starting point.
+	err = sc.Send(stomp.Headers{
+		stomp.HK_DESTINATION, "/app/greeting",
+		stomp.HK_ID, stomp.Uuid(),
+	}, "hello STOMP!")
+	if err != nil {
+		log.Fatalf("failed to send greeting message: %v", err)
+	}
 
-Also see the examples project:
+	md := <-mdCh
+	if md.Error != nil {
+		log.Fatalf("receive greeting message caught error: %v", md.Error)
+	}
 
-* [stompngo_examples at github](https://github.com/gmallard/stompngo_examples)
+	fmt.Printf("----> receive new message: %v\n", md.Message.BodyString())
 
-## QA ##
+	err = sc.Disconnect(stomp.NoDiscReceipt)
+	if err != nil {
+		log.Fatalf("failed to disconnect: %v", err)
+	}
 
-The tests for this STOMP client package run against recent releases of:
-
-* [ActiveMQ](http://activemq.apache.org/)
-* [stompserver_ng](https://github.com/gmallard/stompserver_ng)
-* [Apache Apollo](http://activemq.apache.org/apollo/)
-* [RabbitMQ](http://www.rabbitmq.com/)
-* [Artemis](https://activemq.apache.org/artemis/)
-
-See the tests for **relevant environment variables**.
-
-**NOTE:** For testing with rabbitmq, you also need `export STOMP_RMQ="/"` due to the default vhost of rabbitmq is "/" instead of "localhost".
-
-## Contributions ##
-
-Any and all are welcome by pull request or e-mail patch.
-
-## Wiki ##
-
-News and notes will be posted from time to time at the stompngo wiki:
-
-* [stompngo wiki](https://github.com/gmallard/stompngo/wiki)
-
-Please review and update that on occaision.
-
-## Canonical Repository ##
-
-For the record, the canonical repository for this project is at:
-
-* [stompngo at github](https://github.com/gmallard/stompngo)
-
-## Issues ##
-
-Please review issues at the canonical repository.  File any new issues there as
-well:
-
-* [issues](https://github.com/gmallard/stompngo/issues?sort=comments&state=open)
-
-## Contributors (by first author date) ##
-
-Contribution information (maintained semiautomatically, best efforts basis):
-
-<table border="1" style="width:100%;border: 1px solid black;">
-<tr>
-<th style="border: 1px solid black;padding-left: 10px;" >
-First Author Date
-</th>
-<th style="border: 1px solid black;padding-left: 10px;" >
-(Commit Count)
-</th>
-<th style="border: 1px solid black;padding-left: 10px;" >
-Name / E-mail
-</th>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2011-10-10
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0240)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-gmallard
-</span>
- / &lt;allard.guy.m@gmail.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2014-02-02
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Kelsey Hightower
-</span>
- / &lt;kelsey.hightower@gmail.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2014-12-12
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Logan Attwood
-</span>
- / &lt;logan@therounds.ca&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2015-04-16
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0002)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Max Garvey
-</span>
- / &lt;mgarvey@monsooncommerce.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2016-04-11
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Joakim Sernbrant
-</span>
- / &lt;joakim.sernbrant@trioptima.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2016-07-30
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0120)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Guy M. Allard
-</span>
- / &lt;allard.guy.m@gmail.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2017-03-01
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Dan Corin
-</span>
- / &lt;danielcorin@users.noreply.github.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2017-05-05
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Jason Libbey
-</span>
- / &lt;jlibbey@uber.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2017-06-05
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-Dan Corin
-</span>
- / &lt;dancorin@uber.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2017-11-06
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0006)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-tomsawyer
-</span>
- / &lt;tomsawyer126@gmail.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2017-11-20
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-itomsawyer
-</span>
- / &lt;tomsawyer126@gmail.com&gt;
-</td>
-</tr>
-<tr>
-<td style="border: 1px solid black;padding-left: 10px;" >
-2018-03-12
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-(0001)
-</td>
-<td style="border: 1px solid black;padding-left: 10px;" >
-<span style="font-weight: bold;" >
-GAOXIANG4
-</span>
- / &lt;gaoxiang4@kingsoft.com&gt;
-</td>
-</tr>
-</table>
+	log.Print("Disconnected.")
+}
+```
