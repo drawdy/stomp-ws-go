@@ -96,4 +96,4 @@
 	package for several examples.
 
 */
-package stompngo
+package stompws

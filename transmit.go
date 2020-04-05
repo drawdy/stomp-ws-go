@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-package stompngo
+package stompws
 
 /*
 	Common transmit data for many stomp API calls.

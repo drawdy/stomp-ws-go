@@ -27,10 +27,10 @@ package main
 import (
 	"fmt"
 	//
-	"github.com/gmallard/stompngo"
+	"github.com/drawdy/stomp-ws-go"
 )
 
 func main() {
-	fmt.Println(stompngo.Version())
+	fmt.Println(stompws.Version())
 	return
 }

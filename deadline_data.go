@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-package stompngo
+package stompws
 
 import "time"
 

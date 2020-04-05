@@ -1,4 +1,4 @@
-module github.com/gmallard/stompngo
+module github.com/drawdy/stomp-ws-go
 
 go 1.13
 

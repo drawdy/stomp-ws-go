@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-package stompngo
+package stompws
 
 import (
 	"bufio"
@@ -26,7 +26,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/gmallard/stompngo/senv"
+	"github.com/drawdy/stomp-ws-go/senv"
 )
 
 /*

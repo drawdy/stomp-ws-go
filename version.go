@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-package stompngo
+package stompws
 
 /*
 	Provide package version information.  A nod to the concept of semver.

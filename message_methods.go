@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-package stompngo
+package stompws
 
 /*
 	BodyString returns a Message body as a string.

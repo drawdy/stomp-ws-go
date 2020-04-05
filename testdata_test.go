@@ -1,11 +1,11 @@
-package stompngo
+package stompws
 
 import (
 	"log"
 	"net"
 	"os"
 
-	"github.com/gmallard/stompngo/senv"
+	"github.com/drawdy/stomp-ws-go/senv"
 )
 
 func init() {

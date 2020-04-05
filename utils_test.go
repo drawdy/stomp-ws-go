@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-package stompngo
+package stompws
 
 import (
 	"encoding/hex"
@@ -26,7 +26,7 @@ import (
 	"strings"
 	"testing"
 	//
-	"github.com/gmallard/stompngo/senv"
+	"github.com/drawdy/stomp-ws-go/senv"
 )
 
 /*
