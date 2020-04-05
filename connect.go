@@ -18,6 +18,7 @@ package stompngo
 
 import (
 	"bufio"
+	"github.com/gorilla/websocket"
 	"log"
 	"os"
 
@@ -33,6 +34,10 @@ import (
 */
 func NewConnector(n net.Conn, h Headers) (STOMPConnector, error) {
 	return Connect(n, h)
+}
+
+func NewConnectorOverWS(n *websocket.Conn, h Headers) (STOMPConnector, error) {
+	return ConnectOverWS(n, h)
 }
 
 /*
@@ -110,9 +115,16 @@ func Connect(n net.Conn, h Headers) (*Connection, error) {
 			log.Ldate|log.Lmicroseconds|log.Lshortfile))
 	}
 
+	// Initialize elapsed time tracking data if needed
+	c.eltd = nil
+	if os.Getenv("STOMP_TRACKELT") != "" {
+		c.eltd = &eltmets{}
+	}
+
 	// OK, put a CONNECT on the wire
-	c.wtr = bufio.NewWriter(n) // Create the writer
-	go c.writer()              // Start it
+	c.wtr = bufio.NewWriterSize(n, senv.WriteBufsz()) // Create the writer
+	// fmt.Println("TCDBG", c.wtr.Size())
+	go c.writer() // Start it
 	var f Frame
 	if senv.UseStomp() {
 		if ch.Value("accept-version") == SPL_11 || ch.Value("accept-version") == SPL_12 {
@@ -145,6 +157,87 @@ func Connect(n net.Conn, h Headers) (*Connection, error) {
 	//fmt.Printf("CONDB04\n")
 	// We are connected
 	go c.reader()
+	//
+	return c, e
+}
+
+func ConnectOverWS(n *websocket.Conn, h Headers) (STOMPConnector, error) {
+	if h == nil {
+		return nil, EHDRNIL
+	}
+	if e := h.Validate(); e != nil {
+		return nil, e
+	}
+	if _, ok := h.Contains(HK_RECEIPT); ok {
+		return nil, ENORECPT
+	}
+	ch := h.Clone()
+
+	//fmt.Printf("CONDB01\n")
+	c := &Connection{wsConn: n,
+		input:             make(chan MessageData, 1),
+		output:            make(chan wiredata),
+		connected:         false,
+		session:           "",
+		protocol:          SPL_10,
+		subs:              make(map[string]*subscription),
+		DisconnectReceipt: MessageData{},
+		ssdc:              make(chan struct{}),
+		wtrsdc:            make(chan struct{}),
+		scc:               1,
+		dld:               &deadlineData{}}
+
+	// Basic metric data
+	c.mets = &metrics{st: time.Now()}
+
+	// Assumed for now
+	c.MessageData = c.input
+
+	// Validate that the client wants a version we support
+	if e := c.checkClientVersions(h); e != nil {
+		return c, e
+	}
+	// Optional logging from connection start
+	ln := senv.WantLogger()
+	if ln != "" {
+		c.SetLogger(log.New(os.Stdout, ln+" ",
+			log.Ldate|log.Lmicroseconds|log.Lshortfile))
+	}
+
+	// OK, put a CONNECT on the wire
+	go c.writerOverWS()
+	var f Frame
+	if senv.UseStomp() {
+		if ch.Value("accept-version") == SPL_11 || ch.Value("accept-version") == SPL_12 {
+			f = Frame{STOMP, ch, NULLBUFF} // Create actual STOMP frame
+		} else {
+			f = Frame{CONNECT, ch, NULLBUFF} // Create actual STOMP frame
+		}
+		// fmt.Printf("Frame: %q\n", f)
+	} else {
+		f = Frame{CONNECT, ch, NULLBUFF} // Create actual CONNECT frame
+		// fmt.Printf("Frame: %q\n", f)
+	}
+	r := make(chan error)                               // Make the error channel for a write
+	if e := c.writeWireData(wiredata{f, r}); e != nil { // Send the CONNECT frame
+		return c, e
+	}
+	e := <-r // Retrieve any error
+	//
+	if e != nil {
+		c.sysAbort() // Shutdown,  we are done with errors
+		return c, e
+	}
+	//fmt.Printf("CONDB03\n")
+	//
+	e = c.connectHandlerOverWS(ch)
+	if e != nil {
+		c.sysAbort() // Shutdown ,  we are done with errors
+		return c, e
+	}
+
+	// We are connected
+	go c.readerOverWS()
 	//
 	return c, e
 }

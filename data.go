@@ -22,6 +22,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -132,7 +134,7 @@ type StatsReader interface {
 }
 
 /*
-	HBDataReader is an interface that modela a reader for the heart beat
+	HBDataReader is an interface that models a reader for the heart beat
 	data maintained by the stompngo package.
 */
 type HBDataReader interface {
@@ -218,10 +220,12 @@ type Connection struct {
 	Hbrf              bool // Indicates a heart beat read/receive failure, which is possibly transient.  Valid for 1.1+ only.
 	Hbsf              bool // Indicates a heart beat send failure, which is possibly transient.  Valid for 1.1+ only.
 	logger            *log.Logger
-	mets              *metrics      // Client metrics
-	scc               int           // Subscribe channel capacity
-	discLock          sync.Mutex    // DISCONNECT lock
-	dld               *deadlineData // Deadline data
+	mets              *metrics        // Client metrics
+	scc               int             // Subscribe channel capacity
+	discLock          sync.Mutex      // DISCONNECT lock
+	dld               *deadlineData   // Deadline data
+	eltd              *eltmets        // Elapsed time data
+	wsConn            *websocket.Conn // WebSocket connection
 }
 
 type subscription struct {
