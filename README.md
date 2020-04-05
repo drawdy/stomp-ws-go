@@ -12,7 +12,7 @@
 ## 安装 ##
 
 ```console
-go get github.com/gmallard/stompngo
+go get github.com/drawdy/stomp-ws-go
 ```
 
 ## 示例 ##
